@@ -32,14 +32,16 @@ def build_generator(z_dim, n_class, final_image_shape):
     labels = layers.Input(shape=(n_class), dtype='int32')
     x = Dense(8 * 8 * 2 * DIM)(z)
     x = layers.Reshape((8, 8, 2 * DIM))(x)
-
+    x = SelfAttention()(x)
     for _ in range(num_upscaling):
         x = Resblock(2 * DIM, n_class)(x, labels)
         x = layers.UpSampling2D((2, 2))(x)
         x = Resblock(2 * DIM, n_class)(x, labels)
         x = SelfAttention()(x)
     x = layers.UpSampling2D((2, 2))(x)
-    x = Resblock(8 * DIM, n_class)(x, labels)
+    x = Resblock(2 * DIM, n_class)(x, labels)
+    # x = Resblock(2 * DIM, n_class)(x, labels)
+    x = Resblock( DIM, n_class)(x, labels)
     output_image = tanh(Conv2D(3, 3, padding='same')(x))
     return Model([z, labels], output_image, name='generator')
 
@@ -65,19 +67,18 @@ def build_discriminator(n_class=18):
 
     x = ResblockDown(16 * DIM)(x)  # 16
 
-    x = ResblockDown(16 * DIM, False)(x)  # 4
+    x = ResblockDown(32 * DIM)(x)  # 16
 
-    # x = tf.reduce_sum(x, (1, 2))
+    x = ResblockDown(32 * DIM, False)(x)  # 4
 
-    # product = tf.keras.layers.Concatenate()([embedding, x])
+    x = SelfAttention()(x)
 
-    # embedded_x = tf.reduce_sum(product, axis=1, keepdims=True)
 
     x = Flatten()(x)
 
-    x1 = Dense(500, activation='relu')(x)
-    x1 = Dense(100, activation='relu')(x1)
-    x1 = Dense(80, activation='relu')(x1)
+    x1 = Dense(500, activation='sigmoid')(x)
+    x1 = Dense(100, activation='sigmoid')(x1)
+    x1 = Dense(80, activation='sigmoid')(x1)
 
     x2 = Dense(100, activation='tanh')(x)
     x2 = Dense(100, activation='tanh')(x2)
@@ -95,7 +96,7 @@ class SAGANFactory:
         self.n_class = n_class
 
         # Build models
-        self.optimizer_d = Adam(1e-4, 0.0, 0.9)
+        self.optimizer_d = Adam(2e-5, 0.0, 0.9)
         self.optimizer_g = Adam(1e-5, 0.0, 0.9)
         self.discriminator = build_discriminator(n_class)
 
@@ -216,13 +217,15 @@ class SAGANFactory:
                 ax[col].axis('off')
         plt.show()
 
-    def train(self, train_gen, steps, interval=50):
+    def train(self, train_gen, steps, interval=100):
         for i in range(steps):
             g_loss, d_loss = self.train_step(train_gen, i)
             msg = f'Step {i} g_loss {tf.reduce_sum(g_loss):.4f} d_loss {d_loss:.4f}'
             print(msg)
             if i % interval == 0:
                 if i <= 1000 or interval >= 15000:
+                    if interval > 15000:
+                        interval = 1000
                     msg = f'Step {i} g_loss {tf.reduce_sum(g_loss):.4f} d_loss {d_loss:.4f}'
                     print(msg)
                     self.show_val()
