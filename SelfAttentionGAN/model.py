@@ -30,22 +30,22 @@ def build_generator(z_dim, n_class, final_image_shape):
     num_upscaling = int(math.log2(final_image_shape[0]) - 4)
     z = layers.Input(shape=(z_dim))
     labels = layers.Input(shape=(n_class), dtype='int32')
-    x = Dense(8 * 8 * 1 * DIM)(z)
-    x = layers.Reshape((8, 8, 1 * DIM))(x)
+    x = Dense(8 * 8 * 2 * DIM)(z)
+    x = layers.Reshape((8, 8, 2 * DIM))(x)
 
     for _ in range(num_upscaling):
         x = Resblock(2 * DIM, n_class)(x, labels)
         x = layers.UpSampling2D((2, 2))(x)
-        x = Resblock(DIM, n_class)(x, labels)
+        x = Resblock(2 * DIM, n_class)(x, labels)
         x = SelfAttention()(x)
     x = layers.UpSampling2D((2, 2))(x)
-    x = Resblock(DIM, n_class)(x, labels)
+    x = Resblock(8 * DIM, n_class)(x, labels)
     output_image = tanh(Conv2D(3, 3, padding='same')(x))
     return Model([z, labels], output_image, name='generator')
 
 
 def build_discriminator(n_class=18):
-    DIM = 64
+    DIM = 32
     input_image = Input(shape=IMAGE_SHAPE)
     # input_labels = Input(shape=1)
 
@@ -79,14 +79,12 @@ def build_discriminator(n_class=18):
     x1 = Dense(100, activation='relu')(x1)
     x1 = Dense(80, activation='relu')(x1)
 
-
-    x2 = Dense(100, activation = 'tanh')(x)
-    x2 = Dense(100, activation = 'tanh')(x2)
-    x2 = Dense(50, activation = 'tanh')(x2)
-
+    x2 = Dense(100, activation='tanh')(x)
+    x2 = Dense(100, activation='tanh')(x2)
+    x2 = Dense(50, activation='tanh')(x2)
 
     output = Dense(n_class, activation='sigmoid')(x1)
-    output2 = Dense(1, activation = 'tanh')(x2)
+    output2 = Dense(1, activation='tanh')(x2)
 
     return Model(input_image, [output, output2], name='discriminator')
 
@@ -161,19 +159,20 @@ class SAGANFactory:
             # total loss
             d_loss1 = tf.reduce_mean(tf.add(tf.cast(loss_fake_labels, tf.float32), tf.cast(loss_real_labels, tf.float32)))
             d_loss_hinge = .5 * (loss_real_class + loss_fake_class)
+
+            print('\n')
+            d_loss = d_loss1 + d_loss_hinge
+
             # d_loss = tf.reduce_mean(tf.cast(loss_real, tf.float32))
             d_gradients = d_tape.gradient(d_loss, self.discriminator.trainable_variables)
             self.optimizer_d.apply_gradients(zip(d_gradients, self.discriminator.trainable_variables))
 
             # Generator Loss
-            if d_loss < 1e-2:
-                g_loss = 10 * (tf.reduce_mean(self.mse_loss_d(fake_class_labels, pred_fake)) +.0002)
-            else:
-                g_loss = -1 * (tf.reduce_mean(self.mse_loss_d(fake_class_labels, pred_fake)))
+            g_loss = self.hinge_loss_g(pred_fake_class)
             # g_loss = tf.reduce_mean(tf.cast(loss_fake, tf.float32))
             # g_loss = -tf.reduce_mean((tf.cast(loss_fake, tf.float32)))
             g_gradients = g_tape.gradient(g_loss, self.generator.trainable_variables)
-            if step % 5 == 0 :
+            if step % 1 == 0:
                 self.optimizer_g.apply_gradients(zip(g_gradients, self.generator.trainable_variables))
 
         return g_loss, d_loss
@@ -189,7 +188,6 @@ class SAGANFactory:
         type_dict = recreate_type_dict()
         print(type_dict)
         for label_instance in label_list:
-
             label_instance[index] = 1
             label_instance[index2] = 1
             print(index, index2)
@@ -218,15 +216,16 @@ class SAGANFactory:
                 ax[col].axis('off')
         plt.show()
 
-    def train(self, train_gen, steps, interval=1000):
+    def train(self, train_gen, steps, interval=50):
         for i in range(steps):
             g_loss, d_loss = self.train_step(train_gen, i)
             msg = f'Step {i} g_loss {tf.reduce_sum(g_loss):.4f} d_loss {d_loss:.4f}'
             print(msg)
             if i % interval == 0:
-                msg = f'Step {i} g_loss {tf.reduce_sum(g_loss):.4f} d_loss {d_loss:.4f}'
-                print(msg)
-                self.show_val()
+                if i <= 1000 or interval >= 15000:
+                    msg = f'Step {i} g_loss {tf.reduce_sum(g_loss):.4f} d_loss {d_loss:.4f}'
+                    print(msg)
+                    self.show_val()
 
 
 if __name__ == '__main__':
