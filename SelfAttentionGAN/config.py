@@ -1,9 +1,9 @@
 import CustomModelComponents
 
-batch_size = 4
+batch_size = 12
 buffer_size = 50
 
-IMAGE_SHAPE = (128, 128, 3)
+IMAGE_SHAPE = (64, 64, 3)
 
 # dataset specific :
 pokemon_dataset_path = 'C://Users//srina//PycharmProjects//MachineLearning//CustomModelComponents//DatasetSpecific//PokemonData//pokemon_data.csv'

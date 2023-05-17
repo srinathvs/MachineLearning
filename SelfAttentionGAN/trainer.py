@@ -11,16 +11,16 @@ from SelfAttentionGAN.model import SAGANFactory
 from config import *
 
 
-def smooth_labels(labels, factor=.1):
-    labels *= random.uniform(.01, factor)
-    labels += (factor / labels.shape[1])
+def smooth_labels(labels, factor=.05):
+    labels += random.uniform(.01, factor)
+
     print(labels.shape)
     return labels
 
 
-def random_jitter_image(image, def_size=10):
+def random_jitter_image(image, def_size=20):
     image_jittery = tf.image.resize(image, [image.shape[0] + def_size, image.shape[1] + def_size], method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
-    tf.image.random_crop(image_jittery, size=[image.shape[0], image.shape[1], 3])
+    tf.image.random_crop(image_jittery, size=[IMAGE_SHAPE[0], IMAGE_SHAPE[1], 3])
     image_jittery = tf.image.random_flip_left_right(image_jittery)
     return image_jittery
 
@@ -36,9 +36,10 @@ def preprocess_train_with_label_no_jitter(image_path, labels, image_type='jpeg')
         image = tf.image.decode_image(f, channels=3)
 
     image = tf.image.resize(image, (IMAGE_SHAPE[0], IMAGE_SHAPE[1]))
-
+    image = random_jitter_image(image)
+    image = tf.image.resize(image, (IMAGE_SHAPE[0], IMAGE_SHAPE[1]))
     image = tf.cast(image, tf.float32)
-    labels = tf.cast(labels, tf.float32)
+    labels = tf.cast(smooth_labels(labels), tf.float32)
 
     image = (image - 127.5) / 127.5
 
@@ -73,12 +74,38 @@ def create_dataset_from_csv(csv_path):
     dataset = tf.data.Dataset.from_tensor_slices((files, labels))
 
     dataset = dataset.map(preprocess_train_with_label_no_jitter, num_parallel_calls=tf.data.AUTOTUNE)
-    dataset = dataset.batch(batch_size, drop_remainder=True, deterministic=True)
+    dataset = dataset.batch(batch_size, drop_remainder=True, num_parallel_calls=tf.data.AUTOTUNE)
     dataset = dataset.repeat()
-    dataset = dataset.shuffle(buffer_size=512, reshuffle_each_iteration=True)
+    dataset = dataset.shuffle(buffer_size=65, seed=43, reshuffle_each_iteration=True)
     tf.keras.backend.clear_session()
+
+    real_images, real_class_labels = next(iter(dataset))
+    show_real(real_images, real_class_labels)
+
     sagan = SAGANFactory(IMAGE_SHAPE, 18)
-    sagan.train(iter(dataset), 50000)
+
+    sagan.train(iter(dataset), 150000)
+
+
+def show_real(real_images, real_class_labels):
+    num_images = 5
+    images = real_images[:5]
+    labels = real_class_labels[:5]
+    print(labels)
+    images = images * 0.5 + 0.5
+    grid_row = 1
+    grid_col = num_images
+
+    scale = 2
+    f, axarr = plt.subplots(grid_row, grid_col,
+                            figsize=(grid_col * scale, grid_row * scale))
+
+    for row in range(grid_row):
+        ax = axarr if grid_row == 1 else axarr[row]
+        for col in range(grid_col):
+            ax[col].imshow(images[row * grid_col + col])
+            ax[col].axis('off')
+        plt.show()
 
 
 if __name__ == '__main__':
